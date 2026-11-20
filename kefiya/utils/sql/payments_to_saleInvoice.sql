@@ -32,10 +32,10 @@ FROM
           tsi.`outstanding_amount`,
           tsi.`customer`,
           tsi.`docstatus`,
-          tcus.`advanced_payment_days`
+          -- Customer's "Advanced Payment Days", removed in 2024 (986247d)
+          0 AS `advanced_payment_days`
         FROM
           `tabSales Invoice` AS tsi
-          LEFT JOIN `tabCustomer` AS tcus ON tsi.`customer` = tcus.`NAME`
       ) AS tsi ON
       tsi.`posting_date` - INTERVAL tsi.`advanced_payment_days` DAY <= tpe.`posting_date`
       AND tsi.`due_date` >= tpe.`posting_date`
