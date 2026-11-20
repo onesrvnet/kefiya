@@ -51,7 +51,7 @@ def scheduled_import_fints_payments(manual=None):
                         filters={
                             'kefiya_login': child_item.kefiya_login,
                             'docstatus': 1,
-                            'end_date': ('>', '1/1/1900')
+                            'end_date': ['is', 'set']
                         },
                         fields=['name', 'end_date', 'modified'],
                         order_by='end_date desc, modified desc'
