@@ -1,0 +1,64 @@
+services:
+  mariadb:
+    image: docker.io/mariadb:11.8
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --skip-character-set-client-handshake
+    environment:
+      MYSQL_ROOT_PASSWORD: 123
+      MARIADB_AUTO_UPGRADE: 1
+    volumes:
+      - mariadb-data:/var/lib/mysql
+
+  # Enable PostgreSQL only if you use it.
+  # postgresql:
+  #   image: postgres:14
+  #   environment:
+  #     POSTGRES_PASSWORD: 123
+  #   volumes:
+  #     - postgresql-data:/var/lib/postgresql/data
+
+  # Enable Mailpit if you need to test outgoing mail, e.g. the pain.001 e-mail.
+  # See https://mailpit.axllent.org/
+  #  mailpit:
+  #    image: axllent/mailpit
+  #    volumes:
+  #      - mailpit-data:/data
+  #    ports:
+  #      - 8025:8025
+  #      - 1025:1025
+  #    environment:
+  #      MP_MAX_MESSAGES: 5000
+  #      MP_DATA_FILE: /data/mailpit.db
+  #      MP_SMTP_AUTH_ACCEPT_ANY: 1
+  #      MP_SMTP_AUTH_ALLOW_INSECURE: 1
+
+  redis-cache:
+    image: docker.io/redis:alpine
+
+  redis-queue:
+    image: docker.io/redis:alpine
+
+  frappe:
+    image: docker.io/frappe/bench:latest
+    command: sleep infinity
+    environment:
+      - SHELL=/bin/bash
+    volumes:
+      # This repository. The bench links apps/kefiya to it, so edits are live.
+      - ..:/workspace/kefiya:cached
+      # The bench lives in a volume, not in the repository: a bind mount is
+      # slow for env/ and node_modules/ on macOS, and a bench inside the repo
+      # would contain a link back to the repo.
+      - bench-data:/workspace/development
+    working_dir: /workspace/kefiya
+    ports:
+      - 8000-8005:8000-8005
+      - 9000-9005:9000-9005
+
+volumes:
+  mariadb-data:
+  bench-data:
+  #postgresql-data:
+  #mailpit-data:
