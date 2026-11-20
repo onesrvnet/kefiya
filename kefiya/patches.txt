@@ -1,5 +1,4 @@
-kefiya.patches.v0_0_2.update_kefiya_import
-kefiya.patches.v0_1_0.replace_kefiya_account_nr
 kefiya.patches.v0_4_2.backfill_bank_transaction_expense_account
 kefiya.patches.v0_5_0.split_iban_from_bank_party_name
 kefiya.patches.v0_5_0.move_tan_authentication_to_kefiya_login
+kefiya.patches.v16_2_0.delete_kefiya_workspace
