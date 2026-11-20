@@ -40,25 +40,17 @@ def execute():
 def prepare_erpnext():
     """Have ERPNext make its presets and its own test data, the way its tests do.
 
-    ERPNext 16 makes them when its test utilities are imported. The test
-    runner imports those in any case, and they fail on a site the setup wizard
-    has been through, so the wizard must not run there. ERPNext 15 runs the
-    wizard from its before_tests hook instead.
+    ERPNext makes them when its test utilities are imported. The test runner
+    imports those in any case, and they fail on a site the setup wizard has
+    been through, so the wizard must not run there.
     """
     frappe.flags.in_test = True
-    if hasattr(frappe, "in_test"):
-        frappe.in_test = True
+    frappe.in_test = True
     try:
-        import erpnext.tests.utils as erpnext_tests
-
-        if not hasattr(erpnext_tests, "BootStrapTestData"):
-            from erpnext.setup.utils import before_tests
-
-            before_tests()
+        import erpnext.tests.utils  # noqa: F401
     finally:
         frappe.flags.in_test = False
-        if hasattr(frappe, "in_test"):
-            frappe.in_test = False
+        frappe.in_test = False
 
 
 def set_default_currency():

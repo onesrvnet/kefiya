@@ -5,8 +5,7 @@
 # pushes its protected branches to GitHub, so a push here is a merge there.
 # Pull requests are those of external contributors.
 #
-# The branch decides the Frappe and ERPNext version: version-15 is tested on
-# version-15, every other branch on version-16.
+# Kefiya supports Frappe and ERPNext version-16 only.
 
 name: CI
 
@@ -14,7 +13,6 @@ on:
   push:
     branches:
       - develop
-      - version-15
       - version-16
   pull_request:
   workflow_dispatch:
@@ -36,26 +34,15 @@ jobs:
       node: ${{ steps.pick.outputs.node }}
       mariadb: ${{ steps.pick.outputs.mariadb }}
     steps:
-      - name: Pick versions for the branch
+      - name: Pick versions
         id: pick
-        env:
-          BRANCH: ${{ github.base_ref || github.ref_name }}
         run: |
-          if [ "$BRANCH" = "version-15" ]; then
-            {
-              echo "frappe=version-15"
-              echo "python=3.10"
-              echo "node=18"
-              echo "mariadb=10.6"
-            } >> "$GITHUB_OUTPUT"
-          else
-            {
-              echo "frappe=version-16"
-              echo "python=3.14"
-              echo "node=24"
-              echo "mariadb=11.8"
-            } >> "$GITHUB_OUTPUT"
-          fi
+          {
+            echo "frappe=version-16"
+            echo "python=3.14"
+            echo "node=24"
+            echo "mariadb=11.8"
+          } >> "$GITHUB_OUTPUT"
 
   tests:
     name: Server tests (${{ needs.versions.outputs.frappe }})

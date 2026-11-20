@@ -14,7 +14,6 @@ on:
   push:
     branches:
       - develop
-      - version-15
       - version-16
   pull_request:
   workflow_dispatch:

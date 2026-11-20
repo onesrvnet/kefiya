@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="LICENSE"><img alt="License: AGPL-3.0" src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg"></a>
-  <img alt="Frappe / ERPNext 15 and 16" src="https://img.shields.io/badge/ERPNext-v15%20%7C%20v16-0089ff">
+  <img alt="Frappe / ERPNext 16" src="https://img.shields.io/badge/ERPNext-v16-0089ff">
 </p>
 
 ---
@@ -61,7 +61,7 @@ Install **Kefiya** from the Frappe Cloud Marketplace on any site that runs ERPNe
 
 ### On your own server
 
-Kefiya runs on Frappe and ERPNext version 15 and 16.
+Kefiya runs on Frappe and ERPNext version 16.
 
 ```bash
 cd ~/frappe-bench
@@ -70,7 +70,7 @@ bench --site your-site install-app kefiya
 bench --site your-site enable-scheduler
 ```
 
-Use `--branch version-15` for ERPNext 15. The scheduler is only needed for automatic imports.
+The scheduler is only needed for automatic imports.
 
 ## Your data and security
 
