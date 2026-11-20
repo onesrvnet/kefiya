@@ -601,6 +601,8 @@ kefiya.tools.AssignWizardRow = class AssignWizardRow {
 							args: {
 								bank_transaction_name: bank_transaction_name,
 								vouchers: vouchers,
+								// Kefiya made this Payment Entry: ERPNext's unreconcile cancels it again
+								is_new_voucher: true,
 							},
 							callback(/* r */) {
 								// Refresh page after asignment		

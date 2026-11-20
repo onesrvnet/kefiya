@@ -1,5 +1,3 @@
-# custom_app/custom_app/overrides.py
-
 import frappe
 import json
 from erpnext import get_default_cost_center
@@ -7,6 +5,7 @@ from erpnext.setup.utils import get_exchange_rate
 from frappe.utils import cstr, flt
 from frappe import _
 from erpnext.accounts.doctype.bank_reconciliation_tool.bank_reconciliation_tool import (
+    create_journal_entry_bts,
     reconcile_vouchers,
 )
 
@@ -24,6 +23,22 @@ def custom_create_journal_entry_bts(
     party=None,
     allow_edit=None,
 ):
+    # ERPNext's own dialogs send no account: book the usual two-row entry.
+    # Kefiya's Bank Transaction Wizard sends one for the four-row entry below.
+    if not account:
+        return create_journal_entry_bts(
+            bank_transaction_name,
+            reference_number=reference_number,
+            reference_date=reference_date,
+            posting_date=posting_date,
+            entry_type=entry_type,
+            second_account=second_account,
+            mode_of_payment=mode_of_payment,
+            party_type=party_type,
+            party=party,
+            allow_edit=allow_edit,
+        )
+
     _check_permissions(bank_transaction_name, party_type, party)
 
     # Create a new journal entry based on the bank transaction
@@ -163,17 +178,14 @@ def custom_create_journal_entry_bts(
             }
         )
 
-    additional_account = account
-    if additional_account:
-        additional_account_currency = frappe.get_cached_value("Account", additional_account, "account_currency")
-        additional_account_dict = {
-            "account": additional_account,
-            "account_currency": additional_account_currency,
-            "credit_in_account_currency": bank_transaction.deposit,
-            "debit_in_account_currency": bank_transaction.withdrawal,
-            "cost_center": get_default_cost_center(company),
-        }
-    
+    additional_account_dict = {
+        "account": account,
+        "account_currency": frappe.get_cached_value("Account", account, "account_currency"),
+        "credit_in_account_currency": bank_transaction.deposit,
+        "debit_in_account_currency": bank_transaction.withdrawal,
+        "cost_center": get_default_cost_center(company),
+    }
+
     accounts.append(additional_account_dict)
     accounts.append(reverse_second_account_dict)
 
@@ -216,7 +228,8 @@ def custom_create_journal_entry_bts(
         ]
     )
 
-    return reconcile_vouchers(bank_transaction_name, vouchers)
+    # "Voucher Created": ERPNext's unreconcile cancels the entry again
+    return reconcile_vouchers(bank_transaction_name, vouchers, is_new_voucher=True)
 
 
 def _check_permissions(bank_transaction_name, party_type, party):

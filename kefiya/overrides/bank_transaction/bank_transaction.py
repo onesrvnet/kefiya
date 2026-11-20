@@ -1,5 +1,8 @@
 import frappe
 from erpnext.accounts.doctype.bank_transaction.bank_transaction import BankTransaction
+from erpnext.accounts.doctype.bank_transaction.bank_transaction import (
+    unreconcile_transaction as _unreconcile_transaction,
+)
 
 class CustomBankTransaction(BankTransaction):
     def before_submit(self):
@@ -45,28 +48,66 @@ class CustomBankTransaction(BankTransaction):
             payment_entries.append(payment_entry)
         # runs on_update_after_submit
         self.save()
-        
-        should_delete = self.delete_entries_on_unreconciling()
-        if should_delete:
-            for payment_entry in payment_entries:
-                if payment_entry.payment_document == "Payment Entry":
-                    self.delete_payment_entry(payment_entry)
-                elif payment_entry.payment_document == "Journal Entry":
-                    self.delete_journal_entry(payment_entry)
 
-    def delete_entries_on_unreconciling(self):
-        settings = frappe.get_single("Kefiya Settings")
-        return settings.delete_payment_entries_on_unreconciliation
-    
-    def delete_payment_entry(self, payment_entry):
-        payment_entry = frappe.get_doc("Payment Entry", payment_entry.payment_entry)
-        payment_entry.cancel()
-        payment_entry.delete()
-    
-    def delete_journal_entry(self, payment_entry):
-        journal_entry = frappe.get_doc("Journal Entry", payment_entry.payment_entry)
-        journal_entry.cancel()
-        journal_entry.delete()
+        if not delete_entries_on_unreconciling():
+            return
+        for payment_entry in payment_entries:
+            # ERPNext's unreconcile_transaction cancels these itself once this
+            # returns, and kefiya's wrapper of it deletes them afterwards
+            if frappe.flags.kefiya_in_unreconcile_transaction and is_created_voucher(payment_entry):
+                continue
+            if payment_entry.payment_document in ("Payment Entry", "Journal Entry"):
+                delete_voucher(payment_entry.payment_document, payment_entry.payment_entry)
+
+
+@frappe.whitelist(methods=["POST"])
+def unreconcile_transaction(transaction_name: str | int):
+    """ERPNext's unreconcile_transaction (Banking page), with Kefiya Settings'
+    "Delete payment entries on unreconciliation".
+
+    ERPNext cancels the vouchers that were created to reconcile the
+    transaction. With the setting on, kefiya deletes them afterwards, and
+    deletes the matched ones in remove_payment_entries.
+    """
+    created = [
+        (row.payment_document, row.payment_entry)
+        for row in frappe.get_doc("Bank Transaction", transaction_name).payment_entries
+        if is_created_voucher(row)
+    ]
+
+    frappe.flags.kefiya_in_unreconcile_transaction = True
+    try:
+        result = _unreconcile_transaction(transaction_name)
+    finally:
+        frappe.flags.kefiya_in_unreconcile_transaction = False
+
+    if delete_entries_on_unreconciling():
+        for doctype, name in created:
+            if doctype in ("Payment Entry", "Journal Entry"):
+                delete_voucher(doctype, name)
+    return result
+
+
+def is_created_voucher(payment_entry):
+    return payment_entry.get("reconciliation_type") == "Voucher Created"
+
+
+def delete_entries_on_unreconciling():
+    return frappe.db.get_single_value("Kefiya Settings", "delete_payment_entries_on_unreconciliation")
+
+
+def delete_voucher(doctype, name):
+    """Cancel the voucher if it is still submitted, then delete it.
+
+    ERPNext deletes a voucher with ledger entries only when Accounts Settings
+    allows it ("Delete Accounting and Stock Ledger Entries on deletion of
+    Transaction"); otherwise the voucher stays, cancelled.
+    """
+    voucher = frappe.get_doc(doctype, name)
+    if voucher.docstatus == 1:
+        voucher.cancel()
+    if frappe.db.get_single_value("Accounts Settings", "delete_linked_ledger_entries"):
+        voucher.delete()
 
 
 def get_voucher_expense_account(payment_document, payment_entry, company_account):
