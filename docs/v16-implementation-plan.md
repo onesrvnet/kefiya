@@ -1,5 +1,28 @@
 # Kefiya on ERPNext 16: implementation plan
 
+## Status (2026-11-21)
+
+Done and tested in the devcontainer: items 1-13 below, except the
+`bank_wizard.sql` part of 12 (works on MariaDB, whose default SQL mode has no
+`ONLY_FULL_GROUP_BY`) and the `enum-tools` note in 13. Server tests: 201 pass,
+7 of them new in `kefiya/tests/test_reconciliation.py`.
+
+Changed along the way:
+
+- The Kefiya page has no navigation of its own any more; Frappe's sidebar is
+  the only one. "Bank Logins" and "Imports" in it open the page's Connect and
+  Imports views.
+- "Delete payment entries on unreconciliation" cancels the vouchers, and
+  deletes them only when Accounts Settings allows deleting ledger entries
+  ("Delete Accounting and Stock Ledger Entries on deletion of Transaction").
+  Before, unreconciling failed when that setting was off.
+- The Bank Transaction Wizard and Assign Payment Entries reload their list
+  when shown again, instead of the whole desk.
+
+Checked by hand on `kefiya.localhost`: a kefiya statement import shows up in
+ERPNext's Banking page (`/banking`). A Bank Entry made there reconciles, with
+kefiya's expense account set, and unreconciling it there cancels the entry.
+
 Branch: `feat/v16-support`, based on upstream `phamos-eu/kefiya` `version-16`
 (v16.1.1). ERPNext 15 is out of scope.
 
