@@ -36,19 +36,19 @@ def update_password(
     else:
         user = res["user"]
 
-    logout_all_sessions = cint(logout_all_sessions) or frappe.db.get_single_value(
-        "System Settings", "logout_on_password_reset"
-    )
+    logout_all_sessions = cint(logout_all_sessions) or frappe.get_system_settings("logout_on_password_reset")
     _update_password(user, new_password, logout_all_sessions=cint(logout_all_sessions))
 
-    user_doc, redirect_url = reset_user_data(user)
+    user_doc, _redirect_url = reset_user_data(user)
 
     user_doc.validate_reset_password()
 
-    # frappe.local.login_manager.login_as(user)
-
     frappe.db.set_value("User", user, "last_password_reset_date", today())
     frappe.db.set_value("User", user, "reset_password_key", "")
+
+    # Frappe would log the user in and send them on: kefiya does not log in
+    # after a reset, so the stored redirect is not needed any more
+    frappe.cache.hdel("redirect_after_login", user)
 
     # Return success message instead of redirect
     frappe.msgprint(_("Your password has been updated. Please log in manually."))
