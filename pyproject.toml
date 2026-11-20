@@ -15,6 +15,8 @@ dependencies = [
     # unless the parser gets Options(applicant_iban=True), which fints doesn't
     # pass. Stay on the 4.x mapping (phamos/kefiya#48).
     "mt-940>=4.30,<5",
+    # pain.001 export (kefiya/events/hammer_script/payment_request_on_submit.py)
+    "sepaxml~=2.7",
 ]
 
 [build-system]
