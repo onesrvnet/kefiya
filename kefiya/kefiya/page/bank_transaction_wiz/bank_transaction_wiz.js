@@ -128,9 +128,13 @@ kefiya.tools.assignWizard = class assignWizard {
 						kefiyaSettings: kefiyaSettings,
 						changeMatchAgainst: changeMatchAgainst,
 					});
+				const list = kefiya.tools.assignWizardList;
 				frappe.pages["bank-transaction-wiz"].refresh =
 					function (/* wrapper */) {
-						window.location.reload(false);
+						// Frappe calls this each time the page is shown again. The other
+						// wizard page may have replaced kefiya.tools.assignWizardList.
+						kefiya.tools.assignWizardList = list;
+						list.refresh();
 					};
 			});
 		} else if (kefiyaSettings.assign_against==='Purchase Invoice'){
@@ -143,9 +147,13 @@ kefiya.tools.assignWizard = class assignWizard {
 						kefiyaSettings: kefiyaSettings,
 						changeMatchAgainst: changeMatchAgainst,
 					});
+				const list = kefiya.tools.assignWizardList;
 				frappe.pages["bank-transaction-wiz"].refresh =
 					function (/* wrapper */) {
-						window.location.reload(false);
+						// Frappe calls this each time the page is shown again. The other
+						// wizard page may have replaced kefiya.tools.assignWizardList.
+						kefiya.tools.assignWizardList = list;
+						list.refresh();
 					};
 			});
 		} else if (kefiyaSettings.assign_against==='Journal Entry'){
@@ -158,9 +166,13 @@ kefiya.tools.assignWizard = class assignWizard {
 						kefiyaSettings: kefiyaSettings,
 						changeMatchAgainst: changeMatchAgainst
 					});
+				const list = kefiya.tools.assignWizardList;
 				frappe.pages["bank-transaction-wiz"].refresh =
 					function (/* wrapper */) {
-						window.location.reload(false);
+						// Frappe calls this each time the page is shown again. The other
+						// wizard page may have replaced kefiya.tools.assignWizardList.
+						kefiya.tools.assignWizardList = list;
+						list.refresh();
 					};
 			});
 		} else if (kefiyaSettings.assign_against==='Mastercard'){
@@ -173,9 +185,13 @@ kefiya.tools.assignWizard = class assignWizard {
 						kefiyaSettings: kefiyaSettings,
 						changeMatchAgainst: changeMatchAgainst,
 					});
+				const list = kefiya.tools.assignWizardList;
 				frappe.pages["bank-transaction-wiz"].refresh =
 					function (/* wrapper */) {
-						window.location.reload(false);
+						// Frappe calls this each time the page is shown again. The other
+						// wizard page may have replaced kefiya.tools.assignWizardList.
+						kefiya.tools.assignWizardList = list;
+						list.refresh();
 					};
 			});
 		}

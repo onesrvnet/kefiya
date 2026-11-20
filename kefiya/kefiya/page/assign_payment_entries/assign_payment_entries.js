@@ -88,20 +88,24 @@ kefiya.tools.assignWizard = class assignWizard {
 
 		frappe.model.with_doctype("Sales Invoice", () => {
 			kefiya.tools.assignWizardList =
-				new kefiya.tools.AssignWizardTool({
+				new kefiya.tools.AssignPaymentEntriesTool({
 					parent: me.parent,
 					doctype: "Sales Invoice",
 					page_title: __(me.page.title),
 				});
+			const list = kefiya.tools.assignWizardList;
 			frappe.pages["assign_payment_entries"].refresh =
 				function (/* wrapper */) {
-					window.location.reload(false);
+					// Frappe calls this each time the page is shown again. The other
+					// wizard page may have replaced kefiya.tools.assignWizardList.
+					kefiya.tools.assignWizardList = list;
+					list.refresh();
 				};
 		});
 	}
 };
 
-kefiya.tools.AssignWizardTool = class AssignWizardTool extends (
+kefiya.tools.AssignPaymentEntriesTool = class AssignPaymentEntriesTool extends (
 	frappe.views.BaseList
 ) {
 	constructor(opts) {
