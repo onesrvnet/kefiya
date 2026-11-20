@@ -225,7 +225,7 @@ def error_log_link(error_log_name):
     # relative link: get_link_to_form uses the site's host_name, which
     # can differ from the address the user opened the site with
     return "<br><br>" + _("The bank traffic was saved in the {0}.").format(
-        '<a href="/app/error-log/{0}">{1}</a>'.format(error_log_name, _("Error Log"))
+        '<a href="/desk/error-log/{0}">{1}</a>'.format(error_log_name, _("Error Log"))
     )
 
 

@@ -95,7 +95,7 @@ kefiya.hub.register_view(
 					${btn("load", __("Load accounts"), !l.account_iban)}
 					${btn("import", __("Import"), !!l.account_iban)}
 					${l.has_client_state ? btn("reset", __("Reset connection")) : ""}
-					<a class="btn btn-xs btn-link" href="/app/kefiya-login/${encodeURIComponent(l.name)}" target="_blank" rel="noopener">${__("Open full form")}</a>
+					<a class="btn btn-xs btn-link" href="/desk/kefiya-login/${encodeURIComponent(l.name)}" target="_blank" rel="noopener">${__("Open full form")}</a>
 				</div>
 			</div>`;
 		}

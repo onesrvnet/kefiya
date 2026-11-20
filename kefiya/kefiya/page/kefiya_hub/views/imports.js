@@ -122,7 +122,7 @@ kefiya.hub.register_view(
 						options: `<div class="kefiya-card-rows">${rows
 							.map(([label, value]) => `<div class="kefiya-card-row"><span class="text-muted">${label}</span><span>${value}</span></div>`)
 							.join("")}</div>
-							<p class="mt-3 mb-0"><a href="/app/${frappe.router.slug(doctype)}/${encodeURIComponent(d.name)}" target="_blank" rel="noopener">${__("Open full form")}</a></p>`,
+							<p class="mt-3 mb-0"><a href="/desk/${frappe.router.slug(doctype)}/${encodeURIComponent(d.name)}" target="_blank" rel="noopener">${__("Open full form")}</a></p>`,
 					},
 				],
 			});

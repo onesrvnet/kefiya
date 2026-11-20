@@ -130,7 +130,7 @@ kefiya.hub.KefiyaHub = class KefiyaHub {
 		return this.company_field.get_value();
 	}
 
-	/** Show the view named in the route, /app/kefiya-hub/<view>. */
+	/** Show the view named in the route, /desk/kefiya-hub/<view>. */
 	show_route() {
 		const key = frappe.get_route()[1];
 		this.show_view(kefiya.hub.views[key] ? key : "overview");

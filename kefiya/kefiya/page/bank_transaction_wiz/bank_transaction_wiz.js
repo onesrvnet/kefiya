@@ -892,5 +892,5 @@ kefiya.tools.AssignWizardRow = class AssignWizardRow {
 };
 
 function get_doc_link(doctype, name) {
-	return '<a href="#Form/' + doctype + "/" + name + '"><b>' + name + `</b></a>`;
+	return "<b>" + frappe.utils.get_form_link(doctype, name, true) + "</b>";
 }

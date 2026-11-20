@@ -13,8 +13,7 @@ app_publisher = "Phamos GmbH"
 app_description = "FinTS Connector for ERPNext (Germany)"
 app_icon = "fa fa-university"
 app_logo_url = "/assets/kefiya/images/kefiya-logo.svg"
-# /app/... works on v15 and redirects to /desk/... on v16
-app_home = "/app/kefiya-hub"
+app_home = "/desk/kefiya-hub"
 
 add_to_apps_screen = [
 	{

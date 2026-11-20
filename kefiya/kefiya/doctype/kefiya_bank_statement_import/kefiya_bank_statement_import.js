@@ -85,7 +85,7 @@ frappe.ui.form.on("Kefiya Bank Statement Import", {
 		if (!log.length) return $wrapper.empty();
 		const esc = frappe.utils.escape_html;
 		const link = (r) =>
-			r.name ? `<a href="/app/${frappe.router.slug(r.doctype)}/${encodeURIComponent(r.name)}">${esc(r.name)}</a>` : "";
+			r.name ? `<a href="/desk/${frappe.router.slug(r.doctype)}/${encodeURIComponent(r.name)}">${esc(r.name)}</a>` : "";
 		$wrapper.html(`<table class="table table-sm table-bordered">
 			<thead><tr><th>${__("Line")}</th><th>${__("Status")}</th><th>${__("Date")}</th><th>${__("Amount")}</th>
 				<th>${__("Document")}</th><th>${__("Message")}</th></tr></thead>

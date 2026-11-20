@@ -280,7 +280,7 @@ class TestAccountsBankRefusal(FrappeTestCase):
         self.assertIn("9040: Bitte resynchronisiere deinen chipTAN-Generator.", message)
         self.assertNotIn("Bad status code 400", message)
         self.assertIn("chipTAN generator needs to be resynchronised", message)
-        self.assertIn('href="/app/error-log/ERR-0001"', message)
+        self.assertIn('href="/desk/error-log/ERR-0001"', message)
 
 
 def bank_responds(code, text, exc):
@@ -313,7 +313,7 @@ class TestFetchBankRefusal(FrappeTestCase):
                 self.assertIn("9010: Zeitraum nicht zulässig", message)
                 self.assertNotIn("BPD", message)
                 self.assertIn("choose a later one", message)
-                self.assertIn('href="/app/error-log/ERR-0002"', message)
+                self.assertIn('href="/desk/error-log/ERR-0002"', message)
 
     def test_errors_without_bank_reason_pass_through(self):
         for cls in CONTROLLERS:
@@ -461,4 +461,4 @@ class TestLoginRejected(FrappeTestCase):
         message = str(ctx.exception)
         self.assertIn("Check the FinTS login name and the PIN", message)
         self.assertIn("9931: Anmeldung gesperrt.", message)
-        self.assertIn('href="/app/error-log/ERR-0002"', message)
+        self.assertIn('href="/desk/error-log/ERR-0002"', message)

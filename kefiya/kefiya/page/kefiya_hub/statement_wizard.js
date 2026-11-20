@@ -602,7 +602,7 @@ kefiya.hub.StatementWizard = class StatementWizard {
 				: `bank_account=${encodeURIComponent(doc.bank_account)}`;
 		return `<p><span class="indicator-pill ${color[doc.status]}">${__(doc.status)}</span>
 				${__("{0} created, {1} skipped, {2} failed.", [doc.imported_records, doc.skipped_records, doc.failed_records])}
-				<a href="/app/${list}?${filter}" target="_blank" rel="noopener">${__("Open the list")}</a></p>
+				<a href="/desk/${list}?${filter}" target="_blank" rel="noopener">${__("Open the list")}</a></p>
 			${
 				problems.length
 					? `<div class="kefiya-wizard-scroll kefiya-wizard-rows"><table class="table table-sm kefiya-table">
