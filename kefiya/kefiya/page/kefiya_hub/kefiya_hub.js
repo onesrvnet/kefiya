@@ -5,15 +5,6 @@ frappe.provide("kefiya.hub");
 // The views, the FinTS session and the statement wizard come in
 // kefiya_hub.bundle.js (kefiya/public/js), loaded when the page opens.
 
-// Sidebar: section title (none for the first) and its view keys
-const KEFIYA_HUB_SIDEBAR = [
-	[null, ["overview"]],
-	[__("Connect"), ["connect", "bank_account_wizard"]],
-	[__("Import"), ["imports", "schedule"]],
-	[__("Reconcile"), ["bank_transaction_wizard", "assign_payments"]],
-	[__("Settings"), ["settings"]],
-];
-
 frappe.pages["kefiya-hub"].on_page_load = function (wrapper) {
 	frappe.require("kefiya_hub.bundle.js", () => {
 		kefiya.hub.instance = new kefiya.hub.KefiyaHub(wrapper);
@@ -37,56 +28,18 @@ kefiya.hub.KefiyaHub = class KefiyaHub {
 		this.page = frappe.ui.make_app_page({
 			parent: wrapper,
 			title: __("Kefiya"),
-			single_column: false,
+			// Frappe's sidebar (kefiya/kefiya/sidebar) is the navigation
+			single_column: true,
 		});
 		$(wrapper).addClass("kefiya-hub-page");
 		this.$body = $('<div class="kefiya-hub"></div>').appendTo(this.page.main);
 		this.$views = {};
-		this.make_sidebar();
 		this.make_filters();
 		this.bind_events();
 
 		// Moving between views stays on this page, so Frappe sends no "show"
 		frappe.router.on("change", () => {
 			if (frappe.get_route()[0] === "kefiya-hub") this.show_route();
-		});
-	}
-
-	make_sidebar() {
-		const item = (key) => {
-			const view = kefiya.hub.views[key];
-			return `<a class="kefiya-sidebar-item" href="/app/kefiya-hub/${key}" data-sidebar-view="${key}">
-				<span class="kefiya-sidebar-label">${view.label}</span>
-				<span class="kefiya-sidebar-count hidden" data-count="${key}"></span>
-			</a>`;
-		};
-		this.$sidebar = $(`<div class="kefiya-sidebar">
-			${KEFIYA_HUB_SIDEBAR.map(
-				([title, keys]) => `<div class="kefiya-sidebar-section">
-					${title ? `<div class="kefiya-sidebar-title">${title}</div>` : ""}
-					${keys.map(item).join("")}
-				</div>`
-			).join("")}
-		</div>`).appendTo(this.page.sidebar);
-	}
-
-	update_sidebar() {
-		const d = this.data;
-		const failed = d.logins.filter((l) => l.failed_connection).length;
-		const counts = {
-			connect: failed && { value: failed, color: "red", title: __("Failing logins") },
-			bank_transaction_wizard: d.steps.open_count && {
-				value: d.steps.open_count,
-				color: "orange",
-				title: __("Open transactions"),
-			},
-		};
-		this.$sidebar.find("[data-count]").each((_, el) => {
-			const count = counts[$(el).attr("data-count")];
-			$(el)
-				.attr("class", `kefiya-sidebar-count ${count ? count.color : "hidden"}`)
-				.attr("title", count ? count.title : "")
-				.text(count ? count.value : "");
 		});
 	}
 
@@ -142,11 +95,6 @@ kefiya.hub.KefiyaHub = class KefiyaHub {
 		const view = kefiya.hub.views[key];
 
 		this.page.set_title(key === "overview" ? __("Kefiya") : view.label);
-		this.$sidebar
-			.find(".kefiya-sidebar-item")
-			.removeClass("selected")
-			.filter(`[data-sidebar-view="${key}"]`)
-			.addClass("selected");
 
 		this.page.clear_primary_action();
 		this.page.clear_secondary_action();
@@ -183,7 +131,6 @@ kefiya.hub.KefiyaHub = class KefiyaHub {
 			freeze: !this.data,
 			callback: (r) => {
 				this.data = r.message;
-				this.update_sidebar();
 				this.render_current();
 			},
 		});
