@@ -49,8 +49,33 @@ class LoginRejected(frappe.ValidationError):
 
 
 # fints raises these when the bank rejects the login; it then also blocks the
-# PIN for the rest of the request
+# PIN for the rest of the request. Inside a dialog, fints also raises
+# FinTSClientPINError for codes that some banks send for a wrong or expired TAN.
 LOGIN_ERRORS = (FinTSClientPINError, FinTSClientTemporaryAuthError)
+
+
+def forget_pending_tan(kefiya_login_name):
+    """Drop the stored TAN request and its paused dialog after the bank rejected the login.
+
+    The bank has ended that dialog, so answering it again only gets the next
+    rejection. Committed on its own, because frappe.throw rolls back the request.
+    """
+    if not frappe.db.get_value("Kefiya Login", kefiya_login_name, "stored_tan_state"):
+        return
+
+    frappe.db.set_value(
+        "Kefiya Login",
+        kefiya_login_name,
+        {
+            "stored_tan_state": None,
+            "tan_state_updated": None,
+            "stored_tan_state_decoupled": 0,
+            "stored_dialog_state": None,
+            "dialog_state_updated": None,
+        },
+        update_modified=False,
+    )
+    frappe.db.commit()  # nosemgrep
 
 
 def throw_login_rejected(kefiya_login_name, error, error_log=None):
@@ -60,6 +85,8 @@ def throw_login_rejected(kefiya_login_name, error, error_log=None):
     :param error: The FinTSClientPINError or FinTSClientTemporaryAuthError
     :param error_log: What log_bank_traffic_on_error yielded, if anything
     """
+    forget_pending_tan(kefiya_login_name)
+
     if isinstance(error, FinTSClientTemporaryAuthError):
         intro = _(
             "Your bank has temporarily locked the online banking access of Kefiya"
@@ -69,8 +96,10 @@ def throw_login_rejected(kefiya_login_name, error, error_log=None):
     else:
         intro = _(
             "Your bank did not accept the login of Kefiya Login {0}. Check the"
-            " FinTS login name and the PIN, then try again. Careful: after several"
-            " wrong PINs in a row the bank locks the online banking access."
+            " FinTS login name and the PIN. If you had entered a TAN, the bank may"
+            " also have rejected the TAN, for example because it had expired. Then"
+            " try again. Careful: after several wrong PINs in a row the bank locks"
+            " the online banking access."
         ).format(frappe.bold(kefiya_login_name))
 
     if error_log and error_log.bank_errors:
@@ -84,12 +113,24 @@ def throw_login_rejected(kefiya_login_name, error, error_log=None):
 
 
 @contextlib.contextmanager
-def explain_login_rejection(kefiya_login_name):
-    """Turn a rejected login anywhere in the block into a clear message."""
+def explain_login_rejection(kefiya_login_name, client=None):
+    """Turn a rejected login anywhere in the block into a clear message.
+
+    :param client: The fints client. Given, the message shows the bank's own
+        answer, and the bank traffic goes to the Error Log.
+    """
+    if client is None:
+        recording = contextlib.nullcontext(frappe._dict())
+    else:
+        recording = log_bank_traffic_on_error(
+            client, _("Kefiya: Login rejected"), log_only=LOGIN_ERRORS
+        )
+
     try:
-        yield
+        with recording as error_log:
+            yield
     except LOGIN_ERRORS as e:
-        throw_login_rejected(kefiya_login_name, e)
+        throw_login_rejected(kefiya_login_name, e, error_log)
 
 
 def throw_fetch_tan_required():
@@ -159,7 +200,7 @@ def _fints_debug_logging():
 
 
 @contextlib.contextmanager
-def log_bank_traffic_on_error(client, title):
+def log_bank_traffic_on_error(client, title, log_only=Exception):
     """On an error, write the bank traffic and any HTTP error answer to the Error Log.
 
     fints only raises e.g. "Bad status code 400". Finding out why needs what
@@ -167,6 +208,8 @@ def log_bank_traffic_on_error(client, title):
 
     Yields a dict whose "name" is set to the Error Log once one was written,
     and whose "bank_errors" holds the bank's 9xxx responses as (code, text).
+
+    :param log_only: Exception class or tuple to log; other errors pass unlogged
     """
     error_log = frappe._dict()
     recorder = _BankTrafficRecorder()
@@ -189,7 +232,7 @@ def log_bank_traffic_on_error(client, title):
                 fints_logger.removeHandler(recorder)
     except (TanInteractionRequired, FetchFailed):
         raise
-    except Exception:
+    except log_only:
         error_log.bank_errors = recorder.bank_errors
         # Error Log is a MyISAM table, so the entry stays even when Frappe
         # rolls back the request after frappe.throw
@@ -318,12 +361,21 @@ class FinTSController:
         self.name = self.kefiya_login.name
         self.interactive = FinTSInteractive(interactive)
 
-        with explain_login_rejection(self.name):
-            self.__init_fints_connection()
+        self.__init_fints_connection()
 
+        with explain_login_rejection(self.name, self.fints_connection):
             # If state is new and did not setup tan requirements, init tan mode (and probably ask user for mode and medium).
             if self.__init_tan_mode(tan_mode, tan_medium, tan) is False:
                 raise TanInteractionRequired()
+
+            # Only the answer to the TAN prompt resumes a stored TAN request.
+            # Any other call (loading the accounts, an import, the schedule)
+            # means the prompt was left unanswered, or never shown, as in a
+            # background job: resuming it would send the bank a TAN nobody
+            # entered, and the bank rejects that as a failed login. Drop it, so
+            # the next dialog asks for a new TAN.
+            if self.kefiya_login.stored_tan_blob and tan is ...:
+                self.__persist_fints_state()
 
             # If there is an open TAN request, try to fulfill it
             if self.kefiya_login.stored_tan_blob:

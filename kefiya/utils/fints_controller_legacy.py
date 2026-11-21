@@ -91,7 +91,7 @@ class FinTSController:
         self.name = self.kefiya_login.name
         self.interactive = FinTSInteractive(interactive)
         self.__init_fints_connection()
-        with explain_login_rejection(self.name):
+        with explain_login_rejection(self.name, self.fints_connection):
             self.__init_tan_processing()
             with self.fints_connection:
                 self.__get_fints_accounts()

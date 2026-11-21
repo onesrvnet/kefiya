@@ -427,6 +427,7 @@ class TestLoginRejected(FrappeTestCase):
                 fints_client.get_current_tan_mechanism.return_value = None
                 with patch("frappe.get_doc", return_value=kefiya_login), \
                         patch("frappe.has_permission"), \
+                        patch("frappe.log_error"), \
                         patch(cls.__module__ + ".FinTS3PinTanClient", return_value=fints_client), \
                         self.assertRaises(fints_controller.LoginRejected) as ctx:
                     cls("DKB Test")
@@ -462,3 +463,102 @@ class TestLoginRejected(FrappeTestCase):
         self.assertIn("Check the FinTS login name and the PIN", message)
         self.assertIn("9931: Anmeldung gesperrt.", message)
         self.assertIn('href="/desk/error-log/ERR-0002"', message)
+
+
+def login_with_pending_tan(decoupled=False):
+    """A Kefiya Login whose last TAN prompt is still stored."""
+    kefiya_login = MagicMock(
+        stored_client_blob=None,
+        stored_tan_blob=b"tan request",
+        stored_dialog_blob=b"paused dialog",
+        stored_tan_state_decoupled=decoupled,
+        failed_connection=0,
+    )
+    kefiya_login.name = "DKB Test"
+    return kefiya_login
+
+
+def fints_client_with_tan_mode():
+    """A fints client whose TAN mode and medium are already set up."""
+    fints_client = MagicMock()
+    fints_client.get_current_tan_mechanism.return_value = "921"
+    fints_client.selected_tan_medium = ""
+    fints_client.connection.session = requests.Session()
+    return fints_client
+
+
+class TestPendingTan(FrappeTestCase):
+    def open_controller(self, kefiya_login, fints_client, **kwargs):
+        cls = fints_controller.FinTSController
+
+        def persist(*args, **kw):
+            kefiya_login.stored_tan_blob = None
+
+        with patch("frappe.get_doc", return_value=kefiya_login), \
+                patch("frappe.has_permission"), \
+                patch("kefiya.utils.fints_controller.FinTS3PinTanClient", return_value=fints_client), \
+                patch("kefiya.utils.fints_controller.NeedRetryResponse") as need_retry, \
+                patch.object(cls, "_FinTSController__persist_fints_state", side_effect=persist) as persist_state, \
+                patch.object(cls, "_FinTSController__fetch_fints_accounts", return_value=True):
+            cls("DKB Test", **kwargs)
+        return need_retry, persist_state
+
+    def test_unanswered_tan_prompt_is_not_sent_to_the_bank(self):
+        # e.g. loading the accounts again after the TAN prompt was closed, or
+        # a background job that stored a TAN request nobody saw
+        fints_client = fints_client_with_tan_mode()
+        _, persist_state = self.open_controller(login_with_pending_tan(), fints_client)
+
+        fints_client.resume_dialog.assert_not_called()
+        fints_client.send_tan.assert_not_called()
+        persist_state.assert_called_once_with()
+
+    def test_answer_to_the_tan_prompt_resumes_the_dialog(self):
+        fints_client = fints_client_with_tan_mode()
+        fints_client.send_tan.return_value = None
+        need_retry, _ = self.open_controller(login_with_pending_tan(), fints_client, tan="123456")
+
+        fints_client.resume_dialog.assert_called_once_with(b"paused dialog")
+        fints_client.send_tan.assert_called_once_with(need_retry.from_data.return_value, "123456")
+
+    def test_rejected_tan_shows_the_bank_reason_and_drops_the_request(self):
+        fints_client = fints_client_with_tan_mode()
+
+        def send_tan(*args):
+            logging.getLogger("fints.client").error(
+                "Dialog response: 9942 - PIN/TAN falsch.",
+                extra={"fints_response_code": "9942", "fints_response_text": "PIN/TAN falsch."},
+            )
+            raise FinTSClientPINError("Error during dialog initialization, PIN wrong?")
+        fints_client.send_tan.side_effect = send_tan
+
+        with patch("frappe.log_error", return_value=frappe._dict(name="ERR-0003")), \
+                patch("kefiya.utils.fints_controller.forget_pending_tan") as forget, \
+                self.assertRaises(fints_controller.LoginRejected) as ctx:
+            self.open_controller(login_with_pending_tan(), fints_client, tan="123456")
+
+        message = str(ctx.exception)
+        self.assertIn("9942: PIN/TAN falsch.", message)
+        self.assertIn("rejected the TAN", message)
+        self.assertIn('href="/desk/error-log/ERR-0003"', message)
+        forget.assert_called_once_with("DKB Test")
+
+    def test_forget_pending_tan_commits_the_cleared_state(self):
+        with patch("frappe.db.get_value", return_value="encrypted"), \
+                patch("frappe.db.set_value") as set_value, \
+                patch("frappe.db.commit") as commit:
+            fints_controller.forget_pending_tan("DKB Test")
+
+        values = set_value.call_args.args[2]
+        self.assertIsNone(values["stored_tan_state"])
+        self.assertIsNone(values["stored_dialog_state"])
+        commit.assert_called_once_with()
+
+    def test_forget_pending_tan_without_a_request_does_not_commit(self):
+        with patch("frappe.db.get_value", return_value=None), \
+                patch("frappe.db.set_value") as set_value, \
+                patch("frappe.db.commit") as commit:
+            fints_controller.forget_pending_tan("DKB Test")
+
+        set_value.assert_not_called()
+        commit.assert_not_called()
