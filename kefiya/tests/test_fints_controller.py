@@ -2,6 +2,8 @@
 # Copyright (c) 2026, phamos GmbH and contributors
 # For license information, please see license.txt
 
+import contextlib
+import json
 import logging
 import threading
 from unittest.mock import MagicMock, patch
@@ -9,6 +11,7 @@ from unittest.mock import MagicMock, patch
 import frappe
 import requests
 from fints.client import NeedTANResponse
+from fints.models import SEPAAccount
 from fints.exceptions import (
     FinTSClientError,
     FinTSClientPINError,
@@ -33,6 +36,7 @@ def make_controller(cls):
         name="DKB Test", account_iban="DE02120300000000202051"
     )
     controller.fints_connection = MagicMock()
+    controller.fints_connection._standing_dialog = None
     controller.get_fints_account_by_iban = MagicMock()
     controller.interactive = MagicMock()
     return controller
@@ -123,6 +127,8 @@ class TestLegacyTanAuthenticationRequired(FrappeTestCase):
         for error in (FinTSConnectionError("Bad status code 400"), Exception("code='9942'")):
             with self.subTest(error=str(error)):
                 controller = make_controller(fints_controller_legacy.FinTSController)
+                # the dialog fints opened for the account list
+                controller.fints_connection._standing_dialog = MagicMock(open=True)
                 controller.fints_connection.get_sepa_accounts.side_effect = error
                 with self.assertRaises(frappe.ValidationError):
                     controller._FinTSController__get_fints_accounts()
@@ -484,6 +490,7 @@ def fints_client_with_tan_mode():
     fints_client.get_current_tan_mechanism.return_value = "921"
     fints_client.selected_tan_medium = ""
     fints_client.connection.session = requests.Session()
+    fints_client._standing_dialog = None
     return fints_client
 
 
@@ -562,3 +569,80 @@ class TestPendingTan(FrappeTestCase):
 
         set_value.assert_not_called()
         commit.assert_not_called()
+
+
+ACCOUNT = SEPAAccount(
+    iban="DE02120300000000202051", bic="BYLADEM1001",
+    accountnumber="202051", subaccount=None, blz="12030000",
+)
+
+
+class TestAccountsAfterTan(FrappeTestCase):
+    """The TAN only unlocks the dialog it was asked in."""
+
+    def answer_tan_prompt(self, fints_client, resume_method):
+        cls = fints_controller.FinTSController
+        kefiya_login = login_with_pending_tan()
+        kefiya_login.iban_list = None
+        self.dialog_ended = False
+
+        @contextlib.contextmanager
+        def resume_dialog(dialog_blob):
+            fints_client._standing_dialog = "resumed dialog"
+            yield fints_client
+            fints_client._standing_dialog = None
+            self.dialog_ended = True
+        fints_client.resume_dialog.side_effect = resume_dialog
+
+        def persist(*args, **kw):
+            kefiya_login.stored_tan_blob = None
+
+        with patch("frappe.get_doc", return_value=kefiya_login), \
+                patch("frappe.has_permission"), \
+                patch("kefiya.utils.fints_controller.FinTS3PinTanClient", return_value=fints_client), \
+                patch("kefiya.utils.fints_controller.NeedRetryResponse") as need_retry, \
+                patch.object(cls, "_FinTSController__persist_fints_state", side_effect=persist):
+            need_retry.from_data.return_value.resume_method = resume_method
+            controller = cls("DKB Test", tan="123456")
+        return controller, kefiya_login
+
+    def test_accounts_load_in_the_dialog_the_tan_unlocked(self):
+        # A new dialog would start with another HKTAN, and the bank would ask
+        # for the next TAN
+        fints_client = fints_client_with_tan_mode()
+        fints_client.send_tan.return_value = MagicMock()
+        dialog_at_request = []
+
+        def get_sepa_accounts():
+            dialog_at_request.append(fints_client._standing_dialog)
+            return [ACCOUNT]
+        fints_client.get_sepa_accounts.side_effect = get_sepa_accounts
+
+        controller, kefiya_login = self.answer_tan_prompt(fints_client, "_continue_dialog_initialization")
+
+        self.assertEqual(dialog_at_request, ["resumed dialog"])
+        fints_client.__enter__.assert_not_called()
+        self.assertTrue(self.dialog_ended)
+        self.assertEqual(controller.get_fints_accounts(), [ACCOUNT])
+        self.assertEqual(kefiya_login.iban_list, json.dumps([ACCOUNT.iban]))
+
+    def test_tan_for_the_accounts_answers_with_the_accounts(self):
+        fints_client = fints_client_with_tan_mode()
+        fints_client.send_tan.return_value = [ACCOUNT]
+
+        controller, kefiya_login = self.answer_tan_prompt(fints_client, "_get_sepa_accounts")
+
+        fints_client.get_sepa_accounts.assert_not_called()
+        fints_client.__enter__.assert_not_called()
+        self.assertEqual(controller.get_fints_accounts(), [ACCOUNT])
+        self.assertEqual(kefiya_login.iban_list, json.dumps([ACCOUNT.iban]))
+
+    def test_without_open_dialog_the_client_opens_one(self):
+        controller = make_controller(fints_controller.FinTSController)
+        controller.fints_connection.init_tan_response = None
+
+        with controller.trusted_client_context() as client:
+            self.assertIs(client, controller.fints_connection)
+
+        controller.fints_connection.__enter__.assert_called_once_with()
+        controller.fints_connection.__exit__.assert_called_once()

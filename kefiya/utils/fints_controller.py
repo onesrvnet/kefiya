@@ -384,14 +384,26 @@ class FinTSController:
 
                     # this decoupled setting is missing everywhere, so decoupled requests (like pushTAN 2.0) cannot be handled without this
                     tan_request.decoupled = self.kefiya_login.stored_tan_state_decoupled
-                    self.fints_connection.init_tan_response = self.fints_connection.send_tan(tan_request, tan)
+                    response = self.fints_connection.send_tan(tan_request, tan)
 
                     # on failure update status and skip
-                    if self.is_tan_required_and_requested(self.fints_connection.init_tan_response):
+                    if self.is_tan_required_and_requested(response):
                         raise TanInteractionRequired()
+
+                    # The bank accepted the TAN, so no TAN is pending any more
+                    self.fints_connection.init_tan_response = None
+
+                    # The TAN was for loading the accounts: this is the bank's answer
+                    if tan_request.resume_method == "_get_sepa_accounts":
+                        self.__accept_fints_accounts(response)
 
                     # on success clear stored tan state
                     self.__persist_fints_state()
+
+                    # The TAN only unlocked this dialog. Load the accounts in it
+                    # before it ends: a new dialog would ask for a new TAN.
+                    if self.__fetch_fints_accounts() is False:
+                        raise InitFailedException()
 
             # After successful login/tan verification fetch available accounts if not already present
             if self.__fetch_fints_accounts() is False:
@@ -440,7 +452,14 @@ class FinTSController:
         """
         Opens the fints client context (will most likely generate a new fints dialog) and checks if a TAN is requested.
         If so, it will be requested from the user and the context body will be skipped.
+
+        Inside an open dialog, e.g. the one a TAN has just unlocked, the body
+        runs in that dialog: a new one would ask for a new TAN.
         """
+        if self.fints_connection._standing_dialog:
+            yield self.fints_connection
+            return
+
         with self.fints_connection:
             if self.is_tan_required_and_requested(self.fints_connection.init_tan_response):
                 raise TanInteractionRequired()
@@ -581,10 +600,7 @@ class FinTSController:
                 if self.is_tan_required_and_requested(accounts_response):
                     return False
 
-                self.fints_accounts = accounts_response
-                self.kefiya_login.iban_list = json.dumps(
-                    [a.iban for a in self.fints_accounts if getattr(a, "iban", None)]
-                )
+                self.__accept_fints_accounts(accounts_response)
 
                 # Reading the accounts is part of the first initialization. So after this was successful, the
                 # client state can be persisted for future use.
@@ -613,6 +629,13 @@ class FinTSController:
             frappe.throw(message)
 
         return False
+
+    def __accept_fints_accounts(self, accounts):
+        """Keep the accounts the bank sent, and their IBANs on the login."""
+        self.fints_accounts = accounts
+        self.kefiya_login.iban_list = json.dumps(
+            [a.iban for a in accounts if getattr(a, "iban", None)]
+        )
 
     def __get_fints_account_by_key(self, key, value):
         if not value:
