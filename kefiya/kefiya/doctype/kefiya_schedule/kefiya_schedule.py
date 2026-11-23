@@ -106,8 +106,8 @@ def scheduled_import_fints_payments(manual=None):
                         if frappe.db.get_value(
                             "Kefiya Login", child_item.kefiya_login, "enable_tan_authentication"
                         ):
-                            FinTSController(child_item.kefiya_login) \
-                                .import_fints_transactions(kefiya_import.name)
+                            with FinTSController(child_item.kefiya_login) as controller:
+                                controller.import_fints_transactions(kefiya_import.name)
                         else:
                             FinTSControllerLegacy(child_item.kefiya_login) \
                                 .import_fints_transactions(kefiya_import.name)

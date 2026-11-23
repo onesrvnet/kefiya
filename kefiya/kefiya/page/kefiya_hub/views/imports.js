@@ -192,22 +192,34 @@ kefiya.hub.register_view(
 
 		async run_import(hub, name, kefiya_login) {
 			if (!this.sessions[name]) {
-				this.sessions[name] = new kefiya.hub.FintsSession({ scope: name, kefiya_login });
+				this.sessions[name] = new kefiya.hub.FintsSession({
+					scope: name,
+					kefiya_login,
+					// with a TAN, the import runs when the TAN is in
+					on_tan_resolved: (r) => r.import && this.import_done(hub, r.import),
+				});
 			}
 			const { ok, message } = await this.sessions[name].run({
 				method: "kefiya.utils.client.import_fints_transactions",
 				args: { kefiya_import: name, kefiya_login, user_scope: name },
 			});
-			if (ok) {
-				const payments = (message && message.payments) || [];
-				frappe.show_alert({
-					message: payments.length
-						? __("{0} new transactions imported", [payments.length])
-						: __("No new transactions"),
-					indicator: "green",
-				});
+			// no message: the bank asked for a TAN, the prompt is open
+			if (ok && message) {
+				this.import_done(hub, message);
+			} else {
+				// a failed import stays as "Not run" and can be run again
+				hub.refresh();
 			}
-			// a failed import stays as "Not run" and can be run again
+		}
+
+		import_done(hub, result) {
+			const payments = result.payments || [];
+			frappe.show_alert({
+				message: payments.length
+					? __("{0} new transactions imported", [payments.length])
+					: __("No new transactions"),
+				indicator: "green",
+			});
 			hub.refresh();
 		}
 

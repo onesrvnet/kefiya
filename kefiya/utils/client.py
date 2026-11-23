@@ -36,10 +36,21 @@ def import_fints_transactions(kefiya_import, kefiya_login, user_scope):
     :return: List of max 10 transactions and all new payment entries
     """
     FinTSController = _get_fints_controller(kefiya_login)
-    interactive = {"docname": user_scope, "enabled": True}
+    # the TAN prompt names the import, so it can run once the TAN is in
+    interactive = {"docname": user_scope, "enabled": True, "kefiya_import": kefiya_import}
 
-    return FinTSController(kefiya_login, interactive) \
-        .import_fints_transactions(kefiya_import)
+    try:
+        with FinTSController(kefiya_login, interactive) as controller:
+            return controller.import_fints_transactions(kefiya_import)
+    except Exception as e:
+        # In TAN mode the bank may ask for a TAN: the prompt goes out by
+        # socket, and resolve_tan_interaction runs the import with the TAN.
+        if _use_tan_authentication(kefiya_login):
+            from kefiya.utils.fints_controller import TanInteractionRequired
+
+            if isinstance(e, TanInteractionRequired):
+                return None
+        raise
 
 
 @frappe.whitelist()
@@ -56,10 +67,8 @@ def get_accounts(kefiya_login, user_scope):
     # New controller may raise TanInteractionRequired – we just ignore and let
     # the realtime handler + UI deal with it. Legacy controller won’t raise it.
     try:
-        accounts = FinTSController(
-            kefiya_login,
-            interactive
-        ).get_fints_accounts()
+        with FinTSController(kefiya_login, interactive) as controller:
+            accounts = controller.get_fints_accounts()
         # The bank answered, so its endpoint is right: a good moment to add
         # the bank logo if the login has none yet.
         frappe.get_doc("Kefiya Login", kefiya_login).fetch_bank_logo_if_missing()
@@ -472,8 +481,9 @@ def resolve_tan_interaction(fints_login: str, values: str | dict):
 
     :return: {"tan_resolved": True, "accounts": [...]} once the bank accepted the
         TAN and no further interaction is needed: the accounts were loaded with
-        it, so the form can offer them right away. {"tan_resolved": False} while
-        the bank needs more.
+        it, so the form can offer them right away. If the TAN prompt came from
+        an import, the import has run too, and "import" holds its result.
+        {"tan_resolved": False} while the bank needs more.
     """
     if not _use_tan_authentication(fints_login):
         # Old banks / legacy mode: nothing to resolve
@@ -490,6 +500,7 @@ def resolve_tan_interaction(fints_login: str, values: str | dict):
         tan_mode = values["tan_mode"]
 
     tan_medium = values.get("tan_medium") if tan_mode else None
+    kefiya_import = pending_import(values.get("kefiya_import"), fints_login)
 
     try:
         if values.get("mfa_confirmation"):
@@ -502,4 +513,24 @@ def resolve_tan_interaction(fints_login: str, values: str | dict):
         # will have triggered user interaction via socket
         return {"tan_resolved": False}
 
-    return {"tan_resolved": True, "accounts": controller.get_fints_accounts()}
+    with controller:
+        result = {"tan_resolved": True, "accounts": controller.get_fints_accounts()}
+        if kefiya_import:
+            # The TAN only unlocked this dialog: run the import in it, as a
+            # new dialog would ask for the next TAN
+            result["import"] = controller.import_fints_transactions(kefiya_import)
+    return result
+
+
+def pending_import(kefiya_import, fints_login):
+    """The Kefiya Import the TAN prompt came from, if it still waits for this login."""
+    if not kefiya_import:
+        return None
+
+    frappe.has_permission("Kefiya Import", "write", kefiya_import, throw=True)
+    row = frappe.db.get_value(
+        "Kefiya Import", kefiya_import, ["kefiya_login", "docstatus"], as_dict=True
+    )
+    if row and row.kefiya_login == fints_login and row.docstatus == 0:
+        return kefiya_import
+    return None

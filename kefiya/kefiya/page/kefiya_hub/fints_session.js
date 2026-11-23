@@ -177,7 +177,7 @@ kefiya.hub.FintsSession = class FintsSession {
 		const { message } = await this.run({
 			method: "kefiya.utils.client.resolve_tan_interaction",
 			args: {
-				fints_login: this.kefiya_login,
+				fints_login: data.kefiya_login || this.kefiya_login,
 				values: { ...context, ...values },
 			},
 		});

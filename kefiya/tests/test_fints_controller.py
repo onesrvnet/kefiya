@@ -622,9 +622,13 @@ class TestAccountsAfterTan(FrappeTestCase):
 
         self.assertEqual(dialog_at_request, ["resumed dialog"])
         fints_client.__enter__.assert_not_called()
-        self.assertTrue(self.dialog_ended)
         self.assertEqual(controller.get_fints_accounts(), [ACCOUNT])
         self.assertEqual(kefiya_login.iban_list, json.dumps([ACCOUNT.iban]))
+
+        # an import runs in it too, so the dialog ends only with the controller
+        self.assertFalse(self.dialog_ended)
+        controller.close()
+        self.assertTrue(self.dialog_ended)
 
     def test_tan_for_the_accounts_answers_with_the_accounts(self):
         fints_client = fints_client_with_tan_mode()
@@ -646,3 +650,104 @@ class TestAccountsAfterTan(FrappeTestCase):
 
         controller.fints_connection.__enter__.assert_called_once_with()
         controller.fints_connection.__exit__.assert_called_once()
+
+    def test_import_runs_in_the_dialog_the_tan_unlocked(self):
+        fints_client = fints_client_with_tan_mode()
+        fints_client.send_tan.return_value = MagicMock()
+        fints_client.get_sepa_accounts.return_value = [ACCOUNT]
+        dialog_at_fetch = []
+
+        def get_transactions(*args):
+            dialog_at_fetch.append(fints_client._standing_dialog)
+            return []
+        fints_client.get_transactions.side_effect = get_transactions
+
+        controller, kefiya_login = self.answer_tan_prompt(fints_client, "_continue_dialog_initialization")
+        kefiya_login.account_iban = ACCOUNT.iban
+        with controller:
+            controller.get_fints_transactions()
+
+        self.assertEqual(dialog_at_fetch, ["resumed dialog"])
+        fints_client.__enter__.assert_not_called()
+        self.assertTrue(self.dialog_ended)
+
+
+class TestImportWithTan(FrappeTestCase):
+    def test_tan_prompt_ends_the_import_call_quietly(self):
+        from kefiya.utils import client
+
+        controller = MagicMock(side_effect=fints_controller.TanInteractionRequired())
+        with patch.object(client, "_use_tan_authentication", return_value=True), \
+                patch.object(fints_controller, "FinTSController", controller):
+            self.assertIsNone(client.import_fints_transactions("KIMP-0001", "DKB phamos", "KIMP-0001"))
+
+        interactive = controller.call_args.args[1]
+        self.assertEqual(interactive["kefiya_import"], "KIMP-0001")
+
+    def test_tan_prompt_names_the_login_and_the_import(self):
+        interactive = fints_controller.FinTSInteractive(
+            {"docname": "KIMP-0001", "enabled": True, "kefiya_import": "KIMP-0001"},
+            kefiya_login="DKB phamos",
+        )
+        with patch("frappe.publish_realtime") as publish:
+            interactive.request_tan(challenge=None)
+
+        params = publish.call_args.args[1]
+        self.assertEqual(params["kefiya_login"], "DKB phamos")
+        self.assertEqual(params["kefiya_import"], "KIMP-0001")
+
+    def test_import_runs_with_the_tan_before_the_dialog_ends(self):
+        from kefiya.utils import client
+
+        steps = []
+        controller = MagicMock()
+        controller.return_value.import_fints_transactions.side_effect = \
+            lambda name: steps.append("import " + name) or {"payments": []}
+        controller.return_value.__exit__.side_effect = lambda *a: steps.append("dialog ended")
+
+        with patch.object(client, "_use_tan_authentication", return_value=True), \
+                patch.object(client, "pending_import", return_value="KIMP-0001"), \
+                patch.object(fints_controller, "FinTSController", controller):
+            result = client.resolve_tan_interaction(
+                "DKB phamos", {"mfa_confirmation": 1, "tan": "123456", "kefiya_import": "KIMP-0001"}
+            )
+
+        self.assertEqual(steps, ["import KIMP-0001", "dialog ended"])
+        self.assertEqual(result["import"], {"payments": []})
+
+    def test_only_a_waiting_import_of_this_login_runs(self):
+        from kefiya.utils import client
+
+        rows = {
+            "same login, draft": frappe._dict(kefiya_login="DKB phamos", docstatus=0),
+            "other login": frappe._dict(kefiya_login="Other", docstatus=0),
+            "already submitted": frappe._dict(kefiya_login="DKB phamos", docstatus=1),
+        }
+        for case, row in rows.items():
+            with self.subTest(case), \
+                    patch("frappe.has_permission"), \
+                    patch("frappe.db.get_value", return_value=row):
+                expected = "KIMP-0001" if case == "same login, draft" else None
+                self.assertEqual(client.pending_import("KIMP-0001", "DKB phamos"), expected)
+
+        self.assertIsNone(client.pending_import(None, "DKB phamos"))
+
+    def test_fetch_uses_an_open_dialog(self):
+        fints_client = MagicMock()
+        fints_client._standing_dialog = "open dialog"
+        fints_client.connection.session = requests.Session()
+        fints_client.get_transactions.return_value = []
+
+        fints_controller.fetch_fints_transactions(fints_client, ACCOUNT, None, None)
+
+        fints_client.__enter__.assert_not_called()
+
+    def test_fetch_without_open_dialog_opens_one(self):
+        fints_client = MagicMock()
+        fints_client._standing_dialog = None
+        fints_client.connection.session = requests.Session()
+        fints_client.get_transactions.return_value = []
+
+        fints_controller.fetch_fints_transactions(fints_client, ACCOUNT, None, None)
+
+        fints_client.__enter__.assert_called_once_with()

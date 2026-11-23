@@ -96,6 +96,16 @@ class FinTSController:
             with self.fints_connection:
                 self.__get_fints_accounts()
 
+    # Same interface as FinTSController; this one keeps no dialog open
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        pass
+
+    def close(self):
+        pass
+
     def __init_fints_connection(self):
         """Private: Initialise new fints connection.
 

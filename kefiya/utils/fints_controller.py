@@ -272,6 +272,17 @@ def error_log_link(error_log_name):
     )
 
 
+def open_dialog(client):
+    """The client's open dialog, or else a new one.
+
+    A dialog the login or a TAN has unlocked must be used: a new dialog
+    starts with another HKTAN, and the bank asks for the next TAN.
+    """
+    if client._standing_dialog:
+        return contextlib.nullcontext(client)
+    return client
+
+
 def fetch_fints_transactions(client, account, start_date, end_date):
     """Fetch transactions and turn the bank's refusals into clear messages.
 
@@ -281,7 +292,8 @@ def fetch_fints_transactions(client, account, start_date, end_date):
     """
     error_log = frappe._dict()
     try:
-        with log_bank_traffic_on_error(client, _("Kefiya: Could not fetch transactions")) as error_log, client:
+        with log_bank_traffic_on_error(client, _("Kefiya: Could not fetch transactions")) as error_log, \
+                open_dialog(client):
             try:
                 transactions = client.get_transactions(account, start_date, end_date)
             except FinTSSCARequiredError:
@@ -359,11 +371,16 @@ class FinTSController:
             frappe.has_permission(ptype="write", doc=self.kefiya_login, throw=True)
 
         self.name = self.kefiya_login.name
-        self.interactive = FinTSInteractive(interactive)
+        self.interactive = FinTSInteractive(interactive, kefiya_login=self.name)
 
         self.__init_fints_connection()
 
-        with explain_login_rejection(self.name, self.fints_connection):
+        # The dialog stays open until the controller is closed (use it in a
+        # with block), so an import runs in the dialog the login or the TAN
+        # unlocked: a new dialog would start with another HKTAN, and the bank
+        # would ask for the next TAN.
+        with explain_login_rejection(self.name, self.fints_connection), \
+                contextlib.ExitStack() as dialog:
             # If state is new and did not setup tan requirements, init tan mode (and probably ask user for mode and medium).
             if self.__init_tan_mode(tan_mode, tan_medium, tan) is False:
                 raise TanInteractionRequired()
@@ -379,31 +396,30 @@ class FinTSController:
 
             # If there is an open TAN request, try to fulfill it
             if self.kefiya_login.stored_tan_blob:
-                with self.fints_connection.resume_dialog(self.kefiya_login.stored_dialog_blob):
-                    tan_request = NeedRetryResponse.from_data(self.kefiya_login.stored_tan_blob)
+                dialog.enter_context(
+                    self.fints_connection.resume_dialog(self.kefiya_login.stored_dialog_blob)
+                )
+                tan_request = NeedRetryResponse.from_data(self.kefiya_login.stored_tan_blob)
 
-                    # this decoupled setting is missing everywhere, so decoupled requests (like pushTAN 2.0) cannot be handled without this
-                    tan_request.decoupled = self.kefiya_login.stored_tan_state_decoupled
-                    response = self.fints_connection.send_tan(tan_request, tan)
+                # this decoupled setting is missing everywhere, so decoupled requests (like pushTAN 2.0) cannot be handled without this
+                tan_request.decoupled = self.kefiya_login.stored_tan_state_decoupled
+                response = self.fints_connection.send_tan(tan_request, tan)
 
-                    # on failure update status and skip
-                    if self.is_tan_required_and_requested(response):
-                        raise TanInteractionRequired()
+                # on failure update status and skip
+                if self.is_tan_required_and_requested(response):
+                    raise TanInteractionRequired()
 
-                    # The bank accepted the TAN, so no TAN is pending any more
-                    self.fints_connection.init_tan_response = None
+                # The bank accepted the TAN, so no TAN is pending any more
+                self.fints_connection.init_tan_response = None
 
-                    # The TAN was for loading the accounts: this is the bank's answer
-                    if tan_request.resume_method == "_get_sepa_accounts":
-                        self.__accept_fints_accounts(response)
+                # The TAN was for loading the accounts: this is the bank's answer
+                if tan_request.resume_method == "_get_sepa_accounts":
+                    self.__accept_fints_accounts(response)
 
-                    # on success clear stored tan state
-                    self.__persist_fints_state()
-
-                    # The TAN only unlocked this dialog. Load the accounts in it
-                    # before it ends: a new dialog would ask for a new TAN.
-                    if self.__fetch_fints_accounts() is False:
-                        raise InitFailedException()
+                # on success clear stored tan state
+                self.__persist_fints_state()
+            else:
+                dialog.enter_context(self.trusted_client_context())
 
             # After successful login/tan verification fetch available accounts if not already present
             if self.__fetch_fints_accounts() is False:
@@ -417,6 +433,23 @@ class FinTSController:
             self.interactive.show_progress_realtime(
                _("Connection established"), 100, reload=False
             )
+
+            self.__dialog = dialog.pop_all()
+
+    # set once the controller is logged in
+    __dialog = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close(exc_type, exc_value, traceback)
+
+    def close(self, exc_type=None, exc_value=None, traceback=None):
+        """End the bank dialog, unless a TAN request has paused it."""
+        if self.__dialog:
+            dialog, self.__dialog = self.__dialog, None
+            dialog.__exit__(exc_type, exc_value, traceback)
 
     def __init_fints_connection(self):
         """Private: Initialise new fints connection.
@@ -820,13 +853,18 @@ class FinTSController:
 
 
 class FinTSInteractive:
-    def __init__(self, configuration):
+    def __init__(self, configuration, kefiya_login=None):
+        # the TAN prompt names it, as the answer goes to the login, also
+        # when the prompt came from an import or the schedule
+        self.kefiya_login = kefiya_login
         if not configuration:
             self.docname = None
             self.enabled = False
+            self.kefiya_import = None
         else:
             self.docname = configuration["docname"]
             self.enabled = configuration["enabled"]
+            self.kefiya_import = configuration.get("kefiya_import")
         self.progress = 0
 
     def set_interactive_mode(self, enable):
@@ -901,6 +939,8 @@ class FinTSInteractive:
         if self.enabled:
             params = {
                         "docname": self.docname,
+                        "kefiya_login": self.kefiya_login,
+                        "kefiya_import": self.kefiya_import,
                         "possible_tan_modes": possible_tan_modes,
                         "possible_tan_mediums": possible_tan_mediums,
                         "challenge": challenge,

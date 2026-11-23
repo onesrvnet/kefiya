@@ -64,6 +64,9 @@ kefiya.interactive = {
 	continue_after_tan: function(frm, result) {
 		if (frm.doctype === "Kefiya Login" && result.accounts) {
 			frm.events.choose_account(frm, result.accounts);
+		} else if (frm.doctype === "Kefiya Import" && result.import) {
+			// the import ran with the TAN
+			frm.reload_doc();
 		}
 	},
 
@@ -259,7 +262,8 @@ kefiya.interactive = {
 					frappe.call({
 						method: "kefiya.utils.client.resolve_tan_interaction",
 						args: {
-							fints_login: frm.doc.name,
+							// the prompt can come from an import or the schedule
+							fints_login: data.kefiya_login || frm.doc.name,
 							values: { ...context, ...values },
 						},
 						always: () => kefiya.interactive.finish_progress(frm),
